@@ -1,0 +1,906 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<html lang="ru">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>GeoGuessr Clone - Угадай местоположение</title>
+   <script src="https://cdn.tailwindcss.com"></script>
+   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+   <style>
+       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+       
+       body { font-family: 'Inter', sans-serif; }
+       
+       .glass-panel {
+           background: rgba(0, 0, 0, 0.85);
+           backdrop-filter: blur(12px);
+           border: 1px solid rgba(255, 255, 255, 0.1);
+       }
+       
+       .street-view-container {
+           position: relative;
+           width: 100%;
+           height: 100vh;
+           background: #1a1a1a;
+           overflow: hidden;
+       }
+       
+       #street-view {
+           width: 100%;
+           height: 100%;
+           object-fit: cover;
+       }
+       
+       .map-container {
+           position: fixed;
+           bottom: 20px;
+           right: 20px;
+           width: 350px;
+           height: 250px;
+           border-radius: 12px;
+           overflow: hidden;
+           box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+           z-index: 1000;
+           border: 2px solid rgba(255,255,255,0.2);
+       }
+       
+       .map-container.expanded {
+           width: 600px;
+           height: 450px;
+       }
+       
+       .map-container:hover {
+           transform: scale(1.02);
+       }
+       
+       #map {
+           width: 100%;
+           height: 100%;
+           background: #242424;
+       }
+       
+       .game-ui {
+           position: fixed;
+           top: 0;
+           left: 0;
+           right: 0;
+           pointer-events: none;
+           z-index: 100;
+       }
+       
+       .game-ui > * {
+           pointer-events: auto;
+       }
+       
+       .score-panel {
+           position: fixed;
+           top: 20px;
+           left: 20px;
+           padding: 16px 24px;
+           border-radius: 12px;
+           color: white;
+           font-weight: 600;
+       }
+       
+       .round-badge {
+           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+           padding: 8px 16px;
+           border-radius: 20px;
+           font-size: 14px;
+           font-weight: 700;
+           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+       }
+       
+       .btn-primary {
+           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+           color: white;
+           padding: 12px 32px;
+           border-radius: 8px;
+           font-weight: 600;
+           border: none;
+           cursor: pointer;
+           transition: all 0.3s;
+           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+       }
+       
+       .btn-primary:hover {
+           transform: translateY(-2px);
+           box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+       }
+       
+       .btn-primary:active {
+           transform: translateY(0);
+       }
+       
+       .btn-secondary {
+           background: rgba(255,255,255,0.1);
+           color: white;
+           padding: 10px 20px;
+           border-radius: 8px;
+           border: 1px solid rgba(255,255,255,0.2);
+           cursor: pointer;
+           transition: all 0.3s;
+       }
+       
+       .btn-secondary:hover {
+           background: rgba(255,255,255,0.2);
+       }
+       
+       .btn-support {
+           background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+           color: white;
+           padding: 12px 24px;
+           border-radius: 25px;
+           font-weight: 600;
+           border: none;
+           cursor: pointer;
+           transition: all 0.3s;
+           box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+           display: inline-flex;
+           align-items: center;
+           gap: 8px;
+           text-decoration: none;
+       }
+       
+       .btn-support:hover {
+           transform: translateY(-2px);
+           box-shadow: 0 6px 20px rgba(245, 87, 108, 0.6);
+       }
+       
+       .modal {
+           position: fixed;
+           inset: 0;
+           background: rgba(0,0,0,0.9);
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           z-index: 2000;
+           opacity: 0;
+           pointer-events: none;
+           transition: opacity 0.3s;
+       }
+       
+       .modal.active {
+           opacity: 1;
+           pointer-events: auto;
+       }
+       
+       .modal-content {
+           background: #1a1a1a;
+           border: 1px solid rgba(255,255,255,0.1);
+           border-radius: 16px;
+           padding: 40px;
+           max-width: 500px;
+           width: 90%;
+           text-align: center;
+           transform: scale(0.9);
+           transition: transform 0.3s;
+       }
+       
+       .modal.active .modal-content {
+           transform: scale(1);
+       }
+       
+       .distance-line {
+           stroke: #667eea;
+           stroke-width: 3;
+           stroke-dasharray: 10, 10;
+           animation: dash 20s linear infinite;
+       }
+       
+       @keyframes dash {
+           to { stroke-dashoffset: -1000; }
+       }
+       
+       .marker-pin {
+           width: 30px;
+           height: 30px;
+           border-radius: 50% 50% 50% 0;
+           background: #667eea;
+           position: absolute;
+           transform: rotate(-45deg);
+           left: 50%;
+           top: 50%;
+           margin: -15px 0 0 -15px;
+           box-shadow: 0 0 10px rgba(0,0,0,0.5);
+       }
+       
+       .marker-pin::after {
+           content: '';
+           width: 14px;
+           height: 14px;
+           margin: 8px 0 0 8px;
+           background: #fff;
+           position: absolute;
+           border-radius: 50%;
+       }
+       
+       .guess-marker {
+           filter: hue-rotate(120deg);
+       }
+       
+       .actual-marker {
+           filter: hue-rotate(0deg);
+       }
+       
+       .loading-spinner {
+           border: 3px solid rgba(255,255,255,0.1);
+           border-top-color: #667eea;
+           border-radius: 50%;
+           width: 40px;
+           height: 40px;
+           animation: spin 1s linear infinite;
+       }
+       
+       @keyframes spin {
+           to { transform: rotate(360deg); }
+       }
+       
+       .progress-bar {
+           height: 4px;
+           background: rgba(255,255,255,0.1);
+           border-radius: 2px;
+           overflow: hidden;
+           margin-top: 8px;
+       }
+       
+       .progress-fill {
+           height: 100%;
+           background: linear-gradient(90deg, #667eea, #764ba2);
+           transition: width 0.3s;
+       }
+       
+       .difficulty-selector {
+           display: flex;
+           gap: 10px;
+           margin: 20px 0;
+           justify-content: center;
+       }
+       
+       .difficulty-btn {
+           padding: 10px 20px;
+           border-radius: 8px;
+           border: 2px solid rgba(255,255,255,0.2);
+           background: transparent;
+           color: white;
+           cursor: pointer;
+           transition: all 0.3s;
+       }
+       
+       .difficulty-btn.active {
+           border-color: #667eea;
+           background: rgba(102, 126, 234, 0.2);
+       }
+       
+       .compass {
+           position: fixed;
+           top: 20px;
+           right: 20px;
+           width: 60px;
+           height: 60px;
+           background: rgba(0,0,0,0.8);
+           border-radius: 50%;
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           border: 2px solid rgba(255,255,255,0.2);
+           font-size: 24px;
+           color: white;
+           cursor: pointer;
+           transition: transform 0.3s;
+       }
+       
+       .compass:hover {
+           transform: scale(1.1);
+       }
+       
+       .zoom-controls {
+           position: fixed;
+           right: 20px;
+           bottom: 280px;
+           display: flex;
+           flex-direction: column;
+           gap: 8px;
+       }
+       
+       .zoom-btn {
+           width: 40px;
+           height: 40px;
+           background: rgba(0,0,0,0.8);
+           border: 1px solid rgba(255,255,255,0.2);
+           color: white;
+           border-radius: 8px;
+           display: flex;
+           align-items: center;
+           justify-content: center;
+           cursor: pointer;
+           font-size: 20px;
+           transition: all 0.3s;
+       }
+       
+       .zoom-btn:hover {
+           background: rgba(102, 126, 234, 0.8);
+       }
+       
+       .support-section {
+           margin: 24px 0;
+           padding: 20px;
+           background: rgba(255,255,255,0.05);
+           border-radius: 12px;
+           border: 1px solid rgba(255,255,255,0.1);
+       }
+       
+       .telegram-link {
+           color: #0088cc;
+           text-decoration: none;
+           font-weight: 600;
+           display: inline-flex;
+           align-items: center;
+           gap: 6px;
+           margin-top: 8px;
+           transition: all 0.3s;
+       }
+       
+       .telegram-link:hover {
+           color: #00a8e8;
+           transform: translateX(4px);
+       }
+       
+       .footer-text {
+           position: fixed;
+           bottom: 10px;
+           left: 50%;
+           transform: translateX(-50%);
+           color: rgba(255,255,255,0.3);
+           font-size: 12px;
+           text-align: center;
+           pointer-events: none;
+           z-index: 50;
+       }
+   </style>
+</head>
+<body class="bg-gray-900 text-white overflow-hidden">
+
+   <!-- Game Container -->
+   <div class="street-view-container">
+       <iframe id="street-view" frameborder="0" scrolling="no" allowfullscreen></iframe>
+       
+       <!-- Loading Overlay -->
+       <div id="loading" class="absolute inset-0 bg-gray-900 flex items-center justify-center z-50">
+           <div class="text-center">
+               <div class="loading-spinner mx-auto mb-4"></div>
+               <p class="text-gray-400">Загрузка локации...</p>
+           </div>
+       </div>
+   </div>
+
+   <!-- Game UI -->
+   <div class="game-ui">
+       <!-- Score Panel -->
+       <div class="score-panel glass-panel">
+           <div class="flex items-center gap-4">
+               <div class="round-badge">Раунд <span id="current-round">1</span>/5</div>
+               <div>
+                   <div class="text-sm text-gray-400">Очки</div>
+                   <div class="text-2xl font-bold" id="total-score">0</div>
+               </div>
+           </div>
+           <div class="progress-bar w-48">
+               <div class="progress-fill" id="progress-bar" style="width: 20%"></div>
+           </div>
+       </div>
+
+       <!-- Compass -->
+       <div class="compass" onclick="resetView()" title="Сбросить вид">
+           🧭
+       </div>
+
+       <!-- Zoom Controls -->
+       <div class="zoom-controls">
+           <button class="zoom-btn" onclick="zoomMap(1)">+</button>
+           <button class="zoom-btn" onclick="zoomMap(-1)">−</button>
+       </div>
+   </div>
+
+   <!-- Map Container -->
+   <div class="map-container glass-panel" id="map-container">
+       <div id="map"></div>
+       <button class="absolute top-2 right-2 btn-secondary text-xs z-[1000]" onclick="toggleMapSize()">
+           ⛶
+       </button>
+       <div class="absolute bottom-4 left-4 right-4 z-[1000]">
+           <button id="guess-btn" class="w-full btn-primary opacity-50 cursor-not-allowed" disabled onclick="makeGuess()">
+               Сделать выбор
+           </button>
+       </div>
+   </div>
+
+   <!-- Start Modal -->
+   <div id="start-modal" class="modal active">
+       <div class="modal-content">
+           <h1 class="text-4xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+               GeoGuessr
+           </h1>
+           <p class="text-gray-400 mb-6">Клон популярной игры об исследовании мира</p>
+           
+           <div class="support-section">
+               <h3 class="text-lg font-semibold mb-3 text-white">Поддержать проект 💜</h3>
+               <p class="text-sm text-gray-400 mb-4">Если вам нравится игра, вы можете поддержать разработку</p>
+               <a href="https://t.me/ilovechicolachowski" target="_blank" class="btn-support">
+                   <span>❤️</span>
+                   <span>Поддержать</span>
+               </a>
+               <div class="mt-3">
+                   <a href="https://t.me/ilovechicolachowski" target="_blank" class="telegram-link">
+                       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                           <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.461-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.015-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.442-.751-.244-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.477-1.635.099-.002.321.023.465.141.121.099.154.232.17.325.015.093.034.305.019.471z"/>
+                       </svg>
+                       @ilovechicolachowski
+                   </a>
+               </div>
+           </div>
+
+           <div class="text-left mb-6">
+               <p class="text-sm text-gray-300 mb-4">Выберите сложность:</p>
+               <div class="difficulty-selector">
+                   <button class="difficulty-btn active" onclick="setDifficulty('easy')">Легко</button>
+                   <button class="difficulty-btn" onclick="setDifficulty('medium')">Средне</button>
+                   <button class="difficulty-btn" onclick="setDifficulty('hard')">Сложно</button>
+               </div>
+           </div>
+
+           <div class="space-y-2 text-sm text-gray-400 mb-6 text-left">
+               <p>🌍 Исследуйте случайные локации по всему миру</p>
+               <p>📍 Угадайте своё местоположение на карте</p>
+               <p>🏆 Наберите максимум очков за 5 раундов</p>
+           </div>
+           
+           <button class="btn-primary text-lg px-8 py-3" onclick="startGame()">
+               Начать игру
+           </button>
+       </div>
+   </div>
+
+   <!-- Result Modal -->
+   <div id="result-modal" class="modal">
+       <div class="modal-content">
+           <h2 class="text-3xl font-bold mb-4">Результат раунда</h2>
+           
+           <div class="flex justify-center items-center gap-8 mb-6">
+               <div class="text-center">
+                   <div class="text-4xl font-bold text-blue-400" id="round-score">0</div>
+                   <div class="text-sm text-gray-400">очков</div>
+               </div>
+               <div class="text-4xl text-gray-600">•</div>
+               <div class="text-center">
+                   <div class="text-4xl font-bold text-purple-400" id="distance">0</div>
+                   <div class="text-sm text-gray-400">км от цели</div>
+               </div>
+           </div>
+
+           <div id="result-map" class="w-full h-48 bg-gray-800 rounded-lg mb-6"></div>
+           
+           <p id="result-message" class="text-gray-300 mb-6"></p>
+           
+           <button id="next-round-btn" class="btn-primary" onclick="nextRound()">
+               Следующий раунд
+           </button>
+       </div>
+   </div>
+
+   <!-- Game Over Modal -->
+   <div id="game-over-modal" class="modal">
+       <div class="modal-content">
+           <h2 class="text-3xl font-bold mb-2">Игра окончена!</h2>
+           <p class="text-gray-400 mb-6">Ваш финальный результат</p>
+           
+           <div class="text-6xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent mb-4" id="final-score">
+               0
+           </div>
+           <p class="text-gray-400 mb-8" id="final-rating">Начинающий исследователь</p>
+           
+           <div class="flex gap-4 justify-center">
+               <button class="btn-secondary" onclick="location.reload()">
+                   Играть снова
+               </button>
+               <button class="btn-primary" onclick="shareResult()">
+                   Поделиться
+               </button>
+           </div>
+       </div>
+   </div>
+
+   <!-- Footer Text -->
+   <div class="footer-text">
+       мы работаем полностью бесплатно, будем рады поддержке)
+   </div>
+
+   <script>
+       // Game State
+       let gameState = {
+           currentRound: 1,
+           totalRounds: 5,
+           totalScore: 0,
+           currentLocation: null,
+           guessLocation: null,
+           difficulty: 'easy',
+           map: null,
+           resultMap: null,
+           marker: null,
+           actualMarker: null,
+           line: null,
+           isGuessMade: false
+       };
+
+       // Locations database (lat, lng, heading, pitch, zoom)
+       const locations = [
+           // Famous landmarks
+           { lat: 48.8584, lng: 2.2945, heading: 0, pitch: 0, name: "Эйфелева башня, Париж" },
+           { lat: 40.7489, lng: -73.9680, heading: 0, pitch: 0, name: "Нью-Йорк, США" },
+           { lat: 51.5074, lng: -0.1278, heading: 0, pitch: 0, name: "Лондон, Великобритания" },
+           { lat: 35.6762, lng: 139.6503, heading: 0, pitch: 0, name: "Токио, Япония" },
+           { lat: -33.8688, lng: 151.2093, heading: 0, pitch: 0, name: "Сидней, Австралия" },
+           { lat: 55.7558, lng: 37.6173, heading: 0, pitch: 0, name: "Москва, Россия" },
+           { lat: 52.5200, lng: 13.4050, heading: 0, pitch: 0, name: "Берлин, Германия" },
+           { lat: 41.9028, lng: 12.4964, heading: 0, pitch: 0, name: "Рим, Италия" },
+           { lat: 39.9042, lng: 116.4074, heading: 0, pitch: 0, name: "Пекин, Китай" },
+           { lat: -23.5505, lng: -46.6333, heading: 0, pitch: 0, name: "Сан-Паулу, Бразилия" },
+           { lat: 37.7749, lng: -122.4194, heading: 0, pitch: 0, name: "Сан-Франциско, США" },
+           { lat: 1.3521, lng: 103.8198, heading: 0, pitch: 0, name: "Сингапур" },
+           { lat: 25.2048, lng: 55.2708, heading: 0, pitch: 0, name: "Дубай, ОАЭ" },
+           { lat: 52.3676, lng: 4.9041, heading: 0, pitch: 0, name: "Амстердам, Нидерланды" },
+           { lat: 59.9139, lng: 10.7522, heading: 0, pitch: 0, name: "Осло, Норвегия" },
+           { lat: 48.1351, lng: 11.5820, heading: 0, pitch: 0, name: "Мюнхен, Германия" },
+           { lat: 45.4642, lng: 9.1900, heading: 0, pitch: 0, name: "Милан, Италия" },
+           { lat: 40.4168, lng: -3.7038, heading: 0, pitch: 0, name: "Мадрид, Испания" },
+           { lat: 59.3293, lng: 18.0686, heading: 0, pitch: 0, name: "Стокгольм, Швеция" },
+           { lat: 55.9533, lng: -3.1883, heading: 0, pitch: 0, name: "Эдинбург, Шотландия" }
+       ];
+
+       // Initialize map
+       function initMap() {
+           gameState.map = L.map('map', {
+               zoomControl: false,
+               attributionControl: false,
+               minZoom: 2,
+               worldCopyJump: true
+           }).setView([20, 0], 2);
+
+           L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+               attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+               subdomains: 'abcd',
+               maxZoom: 19
+           }).addTo(gameState.map);
+
+           // Map click handler
+           gameState.map.on('click', function(e) {
+               if (gameState.isGuessMade) return;
+               
+               gameState.guessLocation = e.latlng;
+               
+               if (gameState.marker) {
+                   gameState.map.removeLayer(gameState.marker);
+               }
+               
+               const customIcon = L.divIcon({
+                   className: 'custom-div-icon',
+                   html: "<div style='background-color:#667eea;width:20px;height:20px;border-radius:50%;border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);'></div>",
+                   iconSize: [20, 20],
+                   iconAnchor: [10, 10]
+               });
+               
+               gameState.marker = L.marker(e.latlng, { icon: customIcon }).addTo(gameState.map);
+               
+               // Enable guess button
+               const btn = document.getElementById('guess-btn');
+               btn.disabled = false;
+               btn.classList.remove('opacity-50', 'cursor-not-allowed');
+               btn.textContent = 'Сделать выбор';
+           });
+
+           // Expand map on hover (desktop)
+           const mapContainer = document.getElementById('map-container');
+           let hoverTimeout;
+           
+           mapContainer.addEventListener('mouseenter', () => {
+               if (window.innerWidth > 768) {
+                   hoverTimeout = setTimeout(() => {
+                       mapContainer.classList.add('expanded');
+                       gameState.map.invalidateSize();
+                   }, 300);
+               }
+           });
+           
+           mapContainer.addEventListener('mouseleave', () => {
+               clearTimeout(hoverTimeout);
+               if (!mapContainer.classList.contains('expanded-locked')) {
+                   mapContainer.classList.remove('expanded');
+                   gameState.map.invalidateSize();
+               }
+           });
+       }
+
+       function toggleMapSize() {
+           const container = document.getElementById('map-container');
+           container.classList.toggle('expanded');
+           container.classList.toggle('expanded-locked');
+           setTimeout(() => gameState.map.invalidateSize(), 300);
+       }
+
+       function zoomMap(direction) {
+           const currentZoom = gameState.map.getZoom();
+           gameState.map.setZoom(currentZoom + direction);
+       }
+
+       function setDifficulty(level) {
+           gameState.difficulty = level;
+           document.querySelectorAll('.difficulty-btn').forEach(btn => {
+               btn.classList.remove('active');
+           });
+           event.target.classList.add('active');
+       }
+
+       function getRandomLocation() {
+           // Filter locations based on difficulty
+           let filtered = locations;
+           if (gameState.difficulty === 'easy') {
+               filtered = locations.filter(l => 
+                   ['Эйфелева', 'Нью-Йорк', 'Лондон', 'Токио', 'Сидней', 'Москва'].some(
+                       city => l.name.includes(city)
+                   )
+               );
+           }
+           return filtered[Math.floor(Math.random() * filtered.length)];
+       }
+
+       function loadStreetView(location) {
+           const iframe = document.getElementById('street-view');
+           const loading = document.getElementById('loading');
+           
+           loading.style.display = 'flex';
+           
+           // Using Google Street View Embed API
+           const url = `https://www.google.com/maps/embed?pb=!4v${Date.now()}!6m8!1m7!1sCAoSLEFGMVFpcE1aMHBleXJxR0d6Z2N0dHRkZGV4YzN0d3Z3Z2JjcjN1dG9yZ2Jz!2m2!1d${location.lat}!2d${location.lng}!3f${location.heading}!4f${location.pitch}!5f0.7820865974627469`;
+           
+           iframe.src = url;
+           
+           iframe.onload = () => {
+               setTimeout(() => {
+                   loading.style.display = 'none';
+               }, 1000);
+           };
+           
+           // Fallback timeout
+           setTimeout(() => {
+               loading.style.display = 'none';
+           }, 3000);
+       }
+
+       function startGame() {
+           document.getElementById('start-modal').classList.remove('active');
+           initMap();
+           nextRound();
+       }
+
+       function nextRound() {
+           if (gameState.currentRound > gameState.totalRounds) {
+               endGame();
+               return;
+           }
+
+           // Reset state
+           gameState.isGuessMade = false;
+           gameState.guessLocation = null;
+           
+           if (gameState.marker) {
+               gameState.map.removeLayer(gameState.marker);
+               gameState.marker = null;
+           }
+           
+           // Update UI
+           document.getElementById('current-round').textContent = gameState.currentRound;
+           document.getElementById('progress-bar').style.width = 
+               `${(gameState.currentRound / gameState.totalRounds) * 100}%`;
+           
+           const btn = document.getElementById('guess-btn');
+           btn.disabled = true;
+           btn.classList.add('opacity-50', 'cursor-not-allowed');
+           btn.textContent = 'Выберите место на карте';
+           
+           // Hide modals
+           document.getElementById('result-modal').classList.remove('active');
+           document.getElementById('game-over-modal').classList.remove('active');
+           
+           // Get new location
+           gameState.currentLocation = getRandomLocation();
+           loadStreetView(gameState.currentLocation);
+           
+           // Reset map view
+           gameState.map.setView([20, 0], 2);
+       }
+
+       function calculateDistance(lat1, lng1, lat2, lng2) {
+           const R = 6371; // Earth's radius in km
+           const dLat = (lat2 - lat1) * Math.PI / 180;
+           const dLng = (lng2 - lng1) * Math.PI / 180;
+           const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLng/2) * Math.sin(dLng/2);
+           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+           return R * c;
+       }
+
+       function calculateScore(distance) {
+           // Score formula: max 5000 points, decreases with distance
+           // At 0km = 5000 points
+           // At 20000km = 0 points
+           const maxScore = 5000;
+           const maxDistance = 20000;
+           
+           if (distance < 1) return maxScore;
+           
+           let score = Math.round(maxScore * Math.exp(-distance / 2000));
+           return Math.max(0, Math.min(maxScore, score));
+       }
+
+       function makeGuess() {
+           if (!gameState.guessLocation || gameState.isGuessMade) return;
+           
+           gameState.isGuessMade = true;
+           
+           const distance = calculateDistance(
+               gameState.guessLocation.lat,
+               gameState.guessLocation.lng,
+               gameState.currentLocation.lat,
+               gameState.currentLocation.lng
+           );
+           
+           const score = calculateScore(distance);
+           gameState.totalScore += score;
+           
+           document.getElementById('total-score').textContent = gameState.totalScore;
+           
+           // Show result
+           showRoundResult(distance, score);
+       }
+
+       function showRoundResult(distance, score) {
+           document.getElementById('round-score').textContent = score;
+           document.getElementById('distance').textContent = Math.round(distance);
+           
+           // Result message
+           let message = '';
+           if (score === 5000) message = '🎯 Идеально! Вы попали точно в цель!';
+           else if (score > 4000) message = '🌟 Отлично! Вы очень близко!';
+           else if (score > 3000) message = '👍 Хороший результат!';
+           else if (score > 2000) message = '👌 Неплохо, но есть куда стремиться';
+           else if (score > 1000) message = '🤔 Довольно далеко, но вы узнали континент';
+           else message = '😅 Похоже, вы немного заблудились...';
+           
+           document.getElementById('result-message').textContent = message;
+           
+           // Show result map
+           setTimeout(() => {
+               initResultMap();
+           }, 100);
+           
+           document.getElementById('result-modal').classList.add('active');
+       }
+
+       function initResultMap() {
+           const container = document.getElementById('result-map');
+           container.innerHTML = '';
+           
+           if (gameState.resultMap) {
+               gameState.resultMap.remove();
+           }
+           
+           gameState.resultMap = L.map(container, {
+               zoomControl: false,
+               attributionControl: false
+           });
+           
+           L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+               attribution: '',
+               subdomains: 'abcd'
+           }).addTo(gameState.resultMap);
+           
+           // Add markers
+           const guessIcon = L.divIcon({
+               className: 'custom-div-icon',
+               html: "<div style='background-color:#10b981;width:16px;height:16px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);'></div>",
+               iconSize: [16, 16],
+               iconAnchor: [8, 8]
+           });
+           
+           const actualIcon = L.divIcon({
+               className: 'custom-div-icon',
+               html: "<div style='background-color:#ef4444;width:16px;height:16px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.5);'></div>",
+               iconSize: [16, 16],
+               iconAnchor: [8, 8]
+           });
+           
+           L.marker([gameState.guessLocation.lat, gameState.guessLocation.lng], { icon: guessIcon })
+               .addTo(gameState.resultMap)
+               .bindPopup('Ваш выбор');
+           
+           L.marker([gameState.currentLocation.lat, gameState.currentLocation.lng], { icon: actualIcon })
+               .addTo(gameState.resultMap)
+               .bindPopup(gameState.currentLocation.name);
+           
+           // Draw line
+           const latlngs = [
+               [gameState.guessLocation.lat, gameState.guessLocation.lng],
+               [gameState.currentLocation.lat, gameState.currentLocation.lng]
+           ];
+           
+           L.polyline(latlngs, {
+               color: '#667eea',
+               weight: 3,
+               opacity: 0.8,
+               dashArray: '10, 10'
+           }).addTo(gameState.resultMap);
+           
+           // Fit bounds
+           gameState.resultMap.fitBounds(latlngs, { padding: [50, 50] });
+       }
+
+       function endGame() {
+           document.getElementById('final-score').textContent = gameState.totalScore;
+           
+           let rating = '';
+           const maxScore = gameState.totalRounds * 5000;
+           const percentage = gameState.totalScore / maxScore;
+           
+           if (percentage === 1) rating = '🏆 Легенда! Идеальный результат!';
+           else if (percentage > 0.8) rating = '🌟 Эксперт-географ!';
+           else if (percentage > 0.6) rating = '👍 Опытный путешественник';
+           else if (percentage > 0.4) rating = '🌍 Любитель географии';
+           else if (percentage > 0.2) rating = '🗺️ Начинающий исследователь';
+           else rating = '🎒 Турист-новичок';
+           
+           document.getElementById('final-rating').textContent = rating;
+           document.getElementById('game-over-modal').classList.add('active');
+       }
+
+       function shareResult() {
+           const text = `Я набрал ${gameState.totalScore} очков в GeoGuessr Clone! Попробуй побить мой рекорд! 🌍`;
+           
+           if (navigator.share) {
+               navigator.share({
+                   title: 'GeoGuessr Clone',
+                   text: text,
+                   url: window.location.href
+               });
+           } else {
+               navigator.clipboard.writeText(text);
+               alert('Результат скопирован в буфер обмена!');
+           }
+       }
+
+       function resetView() {
+           if (gameState.currentLocation) {
+               loadStreetView(gameState.currentLocation);
+           }
+       }
+
+       // Keyboard shortcuts
+       document.addEventListener('keydown', (e) => {
+           if (e.code === 'Space' && gameState.guessLocation && !gameState.isGuessMade) {
+               e.preventDefault();
+               makeGuess();
+           }
+           if (e.code === 'KeyM') {
+               toggleMapSize();
+           }
+       });
+
+       // Prevent right click on street view
+       document.getElementById('street-view').addEventListener('contextmenu', (e) => {
+           e.preventDefault();
+       });
+   </script>
+</body>
+</html>
